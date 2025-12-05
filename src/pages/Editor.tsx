@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Canvas as FabricCanvas, IText, Rect, Circle, FabricImage, PencilBrush } from "fabric";
+import { createWorker } from "tesseract.js";
 import { motion } from "framer-motion";
 import {
   Type,
@@ -26,6 +27,7 @@ import {
   PenTool,
   ImagePlus,
   Move,
+  ScanText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,6 +48,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogTrigger,
   DialogFooter,
   DialogClose,
@@ -64,6 +67,7 @@ const FONTS = [
 const Editor = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const signatureCanvasRef = useRef<HTMLCanvasElement>(null);
+  const uploadExtractInputRef = useRef<HTMLInputElement>(null);
   const [canvas, setCanvas] = useState<FabricCanvas | null>(null);
   const [signatureCanvas, setSignatureCanvas] = useState<FabricCanvas | null>(null);
   const [selectedObject, setSelectedObject] = useState<any>(null);
@@ -107,7 +111,7 @@ const Editor = () => {
     });
 
     setCanvas(fabricCanvas);
-    setTemplates(getTemplates());
+    getTemplates().then(setTemplates);
     saveToHistory(fabricCanvas);
 
     return () => {
@@ -276,7 +280,7 @@ const Editor = () => {
 
   const addSignatureToCanvas = () => {
     if (!signatureCanvas || !canvas) return;
-    
+
     const dataURL = signatureCanvas.toDataURL({ format: "png", multiplier: 1 });
     FabricImage.fromURL(dataURL).then((img) => {
       // Scale signature to reasonable size
@@ -322,6 +326,77 @@ const Editor = () => {
     reader.readAsDataURL(file);
   };
 
+  const handleUploadAndExtract = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !canvas) return;
+
+    const toastId = toast.loading("Loading certificate...");
+
+    try {
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        const imgUrl = event.target?.result as string;
+
+        try {
+          // Load the image
+          const img = await FabricImage.fromURL(imgUrl);
+
+          // Get original image dimensions
+          const originalWidth = img.width || 800;
+          const originalHeight = img.height || 600;
+
+          // Calculate scale to fit viewport (max 1200x800 px)
+          const maxViewportWidth = 1200;
+          const maxViewportHeight = 800;
+          const scale = Math.min(
+            maxViewportWidth / originalWidth,
+            maxViewportHeight / originalHeight,
+            1 // Don't scale up, only scale down
+          );
+
+          // Calculate display dimensions
+          const displayWidth = Math.round(originalWidth * scale);
+          const displayHeight = Math.round(originalHeight * scale);
+
+          // Resize canvas to fit viewport
+          canvas.setDimensions({
+            width: displayWidth,
+            height: displayHeight
+          });
+
+          // Scale the image to fit
+          img.scale(scale);
+          img.set({
+            left: 0,
+            top: 0,
+            selectable: false,
+            evented: false,
+          });
+
+          canvas.backgroundImage = img;
+          canvas.renderAll();
+          saveToHistory(canvas);
+          toast.dismiss(toastId);
+
+          const scaleInfo = scale < 1
+            ? ` (scaled to ${Math.round(scale * 100)}% for editing)`
+            : '';
+          toast.success(`Certificate loaded! Original size: ${originalWidth}x${originalHeight}px${scaleInfo}`);
+
+        } catch (error) {
+          console.error("Load Error:", error);
+          toast.dismiss(toastId);
+          toast.error("Failed to load certificate image.");
+        }
+      };
+      reader.readAsDataURL(file);
+    } catch (error) {
+      console.error(error);
+      toast.dismiss(toastId);
+      toast.error("Failed to process image");
+    }
+  };
+
   const deleteSelected = () => {
     if (!canvas || !selectedObject) return;
     canvas.remove(selectedObject);
@@ -345,15 +420,15 @@ const Editor = () => {
 
   const updateObjectSize = (width: number, height: number) => {
     if (!selectedObject || !canvas) return;
-    
+
     const currentWidth = selectedObject.width || 100;
     const currentHeight = selectedObject.height || 100;
-    
+
     selectedObject.set({
       scaleX: width / currentWidth,
       scaleY: height / currentHeight,
     });
-    
+
     canvas.renderAll();
     saveToHistory(canvas);
   };
@@ -380,18 +455,24 @@ const Editor = () => {
     toast.success("Certificate exported as PNG");
   };
 
-  const saveAsTemplate = () => {
+  const saveAsTemplate = async () => {
     if (!canvas || !templateName.trim()) {
       toast.error("Please enter a template name");
       return;
     }
-    const template = saveTemplate({
-      name: templateName,
-      canvasData: JSON.stringify(canvas.toJSON()),
-    });
-    setTemplates(getTemplates());
-    setTemplateName("");
-    toast.success(`Template "${template.name}" saved`);
+    try {
+      const template = await saveTemplate({
+        name: templateName,
+        canvasData: JSON.stringify(canvas.toJSON()),
+      });
+      const updatedTemplates = await getTemplates();
+      setTemplates(updatedTemplates);
+      setTemplateName("");
+      toast.success(`Template "${template.name}" saved`);
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to save template");
+    }
   };
 
   const loadTemplate = (template: CertificateTemplate) => {
@@ -435,7 +516,7 @@ const Editor = () => {
               <Button variant="outline" size="sm" onClick={addCircle} className="gap-2">
                 <CircleIcon className="w-4 h-4" /> Circle
               </Button>
-              
+
               <div className="h-6 w-px bg-border mx-2" />
 
               {/* Add Image */}
@@ -456,6 +537,9 @@ const Editor = () => {
                 <DialogContent className="sm:max-w-md">
                   <DialogHeader>
                     <DialogTitle>Add Digital Signature</DialogTitle>
+                    <DialogDescription>
+                      Draw your signature or upload an image to add to the certificate.
+                    </DialogDescription>
                   </DialogHeader>
                   <div className="space-y-4">
                     <div className="border border-border rounded-lg overflow-hidden">
@@ -481,7 +565,7 @@ const Editor = () => {
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
-              
+
               <div className="h-6 w-px bg-border mx-2" />
 
               <label className="cursor-pointer">
@@ -490,6 +574,24 @@ const Editor = () => {
                 </Button>
                 <input type="file" accept="image/*" onChange={uploadBackground} className="hidden" />
               </label>
+
+              <div className="h-6 w-px bg-border mx-2" />
+
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={() => uploadExtractInputRef.current?.click()}
+              >
+                <ScanText className="w-4 h-4" /> Import Certificate
+              </Button>
+              <input
+                ref={uploadExtractInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleUploadAndExtract}
+                className="hidden"
+              />
 
               <div className="h-6 w-px bg-border mx-2" />
 
@@ -526,7 +628,7 @@ const Editor = () => {
             </div>
 
             {/* Canvas */}
-            <div className="overflow-auto bg-muted/20 rounded-xl p-4 flex items-center justify-center">
+            <div className="overflow-auto bg-muted/20 rounded-xl p-4 flex items-center justify-center max-h-[900px]">
               <canvas ref={canvasRef} className="border border-border rounded-lg shadow-lg" />
             </div>
 
@@ -535,7 +637,7 @@ const Editor = () => {
               <Button onClick={exportPNG} className="gap-2">
                 <Download className="w-4 h-4" /> Export PNG
               </Button>
-              
+
               <Dialog>
                 <DialogTrigger asChild>
                   <Button variant="outline" className="gap-2">
@@ -545,6 +647,9 @@ const Editor = () => {
                 <DialogContent>
                   <DialogHeader>
                     <DialogTitle>Save as Template</DialogTitle>
+                    <DialogDescription>
+                      Save your certificate design as a template for bulk generation.
+                    </DialogDescription>
                   </DialogHeader>
                   <div className="space-y-4 pt-4">
                     <div>
@@ -792,6 +897,24 @@ const Editor = () => {
                   <Label className="text-xs">Color</Label>
                   <Input type="color" value={textColor} onChange={(e) => setTextColor(e.target.value)} className="h-8 mt-1" />
                 </div>
+              </div>
+            </div>
+
+            <div className="mt-6 pt-6 border-t border-border">
+              <h4 className="font-medium text-sm mb-2">💡 Bulk Generation Tip</h4>
+              <div className="bg-primary/5 border border-primary/20 rounded-lg p-3 space-y-2">
+                <p className="text-xs text-muted-foreground">
+                  To generate multiple certificates with different names:
+                </p>
+                <ol className="text-xs text-muted-foreground space-y-1 ml-3 list-decimal">
+                  <li>Add a text field with <code className="bg-muted px-1 py-0.5 rounded">{"{name}"}</code></li>
+                  <li>Style it as you want (font, size, color, position)</li>
+                  <li>Save as template</li>
+                  <li>Go to Generate page to bulk create certificates</li>
+                </ol>
+                <p className="text-xs text-muted-foreground italic">
+                  The <code className="bg-muted px-1 py-0.5 rounded">{"{name}"}</code> text will be replaced with each person's name while keeping all styling.
+                </p>
               </div>
             </div>
           </motion.div>

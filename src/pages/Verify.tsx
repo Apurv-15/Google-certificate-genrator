@@ -16,12 +16,16 @@ const Verify = () => {
     if (!certId.trim()) return;
 
     setIsSearching(true);
-    // Simulate network delay for UX
-    await new Promise((resolve) => setTimeout(resolve, 500));
 
-    const found = verifyCertificate(certId.trim());
-    setResult(found ?? null);
-    setIsSearching(false);
+    try {
+      const found = await verifyCertificate(certId.trim());
+      setResult(found ?? null);
+    } catch (error) {
+      console.error(error);
+      setResult(null);
+    } finally {
+      setIsSearching(false);
+    }
   };
 
   const formatDate = (date: Date | string) => {

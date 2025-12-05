@@ -46,7 +46,7 @@ const Generate = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
-    setTemplates(getTemplates());
+    getTemplates().then(setTemplates);
   }, []);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -112,13 +112,18 @@ const Generate = () => {
     setProgress(0);
     setGeneratedCerts([]);
 
+    // Parse template to get canvas dimensions
+    const templateData = JSON.parse(selectedTemplate.canvasData);
+    const canvasWidth = templateData.width || 800;
+    const canvasHeight = templateData.height || 566;
+
     const hiddenCanvas = document.createElement("canvas");
-    hiddenCanvas.width = 800;
-    hiddenCanvas.height = 566;
+    hiddenCanvas.width = canvasWidth;
+    hiddenCanvas.height = canvasHeight;
 
     const fabricCanvas = new FabricCanvas(hiddenCanvas, {
-      width: 800,
-      height: 566,
+      width: canvasWidth,
+      height: canvasHeight,
     });
 
     const generated: GeneratedCert[] = [];
@@ -132,32 +137,28 @@ const Generate = () => {
       // Find and update name placeholder
       const objects = fabricCanvas.getObjects();
       let nameUpdated = false;
-      
+
+      // Use template's name placeholder if specified, otherwise look for common patterns
+      const placeholderText = selectedTemplate.namePlaceholder || "{name}";
+
       for (const obj of objects) {
         if (obj.type === "i-text" || obj.type === "text") {
           const textObj = obj as IText;
-          const text = textObj.text?.toLowerCase() || "";
-          if (text.includes("name") || text.includes("recipient") || text.includes("edit")) {
-            textObj.set("text", name);
+          const text = textObj.text || "";
+
+          // Check if this text object contains the placeholder
+          if (text.includes(placeholderText)) {
+            // Replace the placeholder with the actual name, preserving all other properties
+            textObj.set("text", text.replace(placeholderText, name));
             nameUpdated = true;
             break;
           }
         }
       }
 
-      // If no placeholder found, add name at center
+      // If no placeholder found, show a warning but don't add name
       if (!nameUpdated) {
-        const nameText = new IText(name, {
-          left: 400,
-          top: 200,
-          fontSize: 48,
-          fontFamily: "Libre Caslon Text",
-          fontWeight: "bold",
-          fill: "#1a1a1a",
-          originX: "center",
-          originY: "center",
-        });
-        fabricCanvas.add(nameText);
+        console.warn(`No placeholder "${placeholderText}" found in template for ${name}`);
       }
 
       // Add cert ID
@@ -191,7 +192,7 @@ const Generate = () => {
       const imageData = fabricCanvas.toDataURL({ format: "png", multiplier: 2 });
 
       // Save to store
-      saveCertificate({
+      await saveCertificate({
         certId,
         recipientName: name,
         templateId: selectedTemplate.id,
