@@ -46,7 +46,17 @@ const Generate = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
-    getTemplates().then(setTemplates);
+    const fetchTemplates = async () => {
+      try {
+        const temps = await getTemplates();
+        console.log("Templates fetched in Generate:", temps);
+        setTemplates(temps);
+      } catch (error) {
+        console.error("Error fetching templates in Generate:", error);
+        toast.error("Failed to load templates");
+      }
+    };
+    fetchTemplates();
   }, []);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -114,8 +124,27 @@ const Generate = () => {
 
     // Parse template to get canvas dimensions
     const templateData = JSON.parse(selectedTemplate.canvasData);
-    const canvasWidth = templateData.width || 800;
-    const canvasHeight = templateData.height || 566;
+
+    // Extract actual canvas dimensions from template
+    // Fabric.js stores dimensions in the root of the JSON object
+    let canvasWidth = templateData.width || templateData.objects?.[0]?.width || 800;
+    let canvasHeight = templateData.height || templateData.objects?.[0]?.height || 566;
+
+    // If there's a background image, use its original dimensions
+    if (templateData.backgroundImage) {
+      const bgImg = templateData.backgroundImage;
+      if (bgImg.width && bgImg.height) {
+        // Background image dimensions with scaling
+        const bgWidth = bgImg.width * (bgImg.scaleX || 1);
+        const bgHeight = bgImg.height * (bgImg.scaleY || 1);
+
+        // Use the larger of canvas or background dimensions to avoid cropping
+        canvasWidth = Math.max(canvasWidth, Math.round(bgWidth));
+        canvasHeight = Math.max(canvasHeight, Math.round(bgHeight));
+      }
+    }
+
+    console.log(`Certificate Generation - Canvas Dimensions: ${canvasWidth}x${canvasHeight}`);
 
     const hiddenCanvas = document.createElement("canvas");
     hiddenCanvas.width = canvasWidth;
@@ -132,7 +161,33 @@ const Generate = () => {
       const name = names[i];
       const certId = generateCertId();
 
-      await fabricCanvas.loadFromJSON(JSON.parse(selectedTemplate.canvasData));
+      // Parse template data first
+      const templateJson = JSON.parse(selectedTemplate.canvasData);
+
+      // Pre-process JSON to enable CORS for background image
+      if (templateJson.backgroundImage && typeof templateJson.backgroundImage === 'object') {
+        templateJson.backgroundImage.crossOrigin = 'anonymous';
+        console.log("Set crossOrigin for background image in JSON");
+      }
+
+      console.log("Loading template JSON for:", name);
+      await fabricCanvas.loadFromJSON(templateJson);
+
+      // Double check background image loading
+      if (fabricCanvas.backgroundImage) {
+        const bgImg = fabricCanvas.backgroundImage as FabricImage;
+        // If it's an external URL, ensure it's loaded with CORS
+        if ((bgImg as any).src && (bgImg as any).src.startsWith('http')) {
+          // Force reload if needed to ensure render
+          if (!bgImg.getElement()) {
+            console.log("Reloading background image to ensure visibility...");
+            const newBg = await FabricImage.fromURL((bgImg as any).src, { crossOrigin: 'anonymous' });
+            fabricCanvas.backgroundImage = newBg;
+          }
+        }
+      } else {
+        console.warn("No background image found in template!");
+      }
 
       // Find and update name placeholder
       const objects = fabricCanvas.getObjects();
@@ -140,6 +195,7 @@ const Generate = () => {
 
       // Use template's name placeholder if specified, otherwise look for common patterns
       const placeholderText = selectedTemplate.namePlaceholder || "{name}";
+      console.log(`Looking for placeholder "${placeholderText}" to replace with "${name}"`);
 
       for (const obj of objects) {
         if (obj.type === "i-text" || obj.type === "text") {
@@ -148,10 +204,12 @@ const Generate = () => {
 
           // Check if this text object contains the placeholder
           if (text.includes(placeholderText)) {
+            console.log("Found placeholder in text object:", text);
             // Replace the placeholder with the actual name, preserving all other properties
             textObj.set("text", text.replace(placeholderText, name));
             nameUpdated = true;
-            break;
+            // Force update
+            textObj.setCoords();
           }
         }
       }
@@ -159,35 +217,41 @@ const Generate = () => {
       // If no placeholder found, show a warning but don't add name
       if (!nameUpdated) {
         console.warn(`No placeholder "${placeholderText}" found in template for ${name}`);
+        toast.warning(`Placeholder "${placeholderText}" not found for ${name}`);
       }
 
-      // Add cert ID
+      // Add cert ID - position it at bottom right, relative to canvas size
       const certIdText = new IText(`Cert ID: ${certId}`, {
-        left: 700,
-        top: 530,
+        left: canvasWidth - 20, // 20px from right edge
+        top: canvasHeight - 30, // 30px from bottom edge
         fontSize: 12,
         fontFamily: "Roboto Mono",
         fill: "#666666",
         originX: "right",
+        originY: "bottom",
       });
       fabricCanvas.add(certIdText);
 
-      // Generate QR code
+      // Generate QR code - position it above the cert ID
       try {
-        const qrDataUrl = await QRCode.toDataURL(certId, { width: 60, margin: 1 });
+        const qrSize = 60;
+        const qrDataUrl = await QRCode.toDataURL(certId, { width: qrSize, margin: 1 });
         const qrImg = await FabricImage.fromURL(qrDataUrl);
         qrImg.set({
-          left: 720,
-          top: 480,
+          left: canvasWidth - 20 - qrSize / 2, // Align with cert ID, account for QR center
+          top: canvasHeight - 40 - qrSize, // Just above cert ID with 10px spacing
           originX: "center",
-          originY: "center",
+          originY: "top",
         });
         fabricCanvas.add(qrImg);
       } catch (err) {
         console.log("QR generation skipped");
       }
 
-      fabricCanvas.renderAll();
+      // Ensure everything is rendered
+      fabricCanvas.requestRenderAll();
+      // Wait a tick for images to be ready
+      await new Promise(resolve => setTimeout(resolve, 100));
 
       const imageData = fabricCanvas.toDataURL({ format: "png", multiplier: 2 });
 

@@ -111,7 +111,20 @@ const Editor = () => {
     });
 
     setCanvas(fabricCanvas);
-    getTemplates().then(setTemplates);
+
+    const fetchTemplates = async () => {
+      try {
+        console.log("Fetching templates...");
+        const temps = await getTemplates();
+        console.log("Templates fetched:", temps);
+        setTemplates(temps);
+      } catch (error) {
+        console.error("Error fetching templates:", error);
+        toast.error("Failed to load templates");
+      }
+    };
+
+    fetchTemplates();
     saveToHistory(fabricCanvas);
 
     return () => {
@@ -460,27 +473,64 @@ const Editor = () => {
       toast.error("Please enter a template name");
       return;
     }
+
+    const toastId = toast.loading("Saving template...");
+
     try {
+      console.log("Attempting to save template:", templateName);
+      console.log("Canvas dimensions:", canvas.getWidth(), "x", canvas.getHeight());
+
+      const canvasJSON = canvas.toJSON();
+      // Explicitly ensure dimensions are included
+      canvasJSON.width = canvas.getWidth();
+      canvasJSON.height = canvas.getHeight();
+
       const template = await saveTemplate({
         name: templateName,
-        canvasData: JSON.stringify(canvas.toJSON()),
+        canvasData: JSON.stringify(canvasJSON),
       });
+      console.log("Template saved successfully:", template);
+
       const updatedTemplates = await getTemplates();
       setTemplates(updatedTemplates);
       setTemplateName("");
+      toast.dismiss(toastId);
       toast.success(`Template "${template.name}" saved`);
-    } catch (error) {
-      console.error(error);
-      toast.error("Failed to save template");
+    } catch (error: any) {
+      console.error("Error saving template:", error);
+      console.error("Error code:", error.code);
+      console.error("Error message:", error.message);
+      toast.dismiss(toastId);
+
+      if (error.code === 'permission-denied') {
+        toast.error("Firebase permission denied. Please check your Firestore rules.");
+      } else {
+        toast.error(`Failed to save template: ${error.message || 'Unknown error'}`);
+      }
     }
   };
 
   const loadTemplate = (template: CertificateTemplate) => {
     if (!canvas) return;
-    canvas.loadFromJSON(JSON.parse(template.canvasData)).then(() => {
-      canvas.renderAll();
-      toast.success(`Loaded "${template.name}"`);
-    });
+    try {
+      const json = JSON.parse(template.canvasData);
+
+      // Ensure cross-origin loading for background images
+      if (json.backgroundImage && typeof json.backgroundImage === 'object') {
+        json.backgroundImage.crossOrigin = 'anonymous';
+      }
+
+      canvas.loadFromJSON(json).then(() => {
+        canvas.renderAll();
+        toast.success(`Loaded "${template.name}"`);
+      }).catch((err) => {
+        console.error("Error loading template JSON:", err);
+        toast.error("Failed to render template");
+      });
+    } catch (error) {
+      console.error("Error parsing template data:", error);
+      toast.error("Failed to load template data");
+    }
   };
 
   const isTextObject = selectedObject?.type === "i-text" || selectedObject?.type === "text";
@@ -667,23 +717,21 @@ const Editor = () => {
                 </DialogContent>
               </Dialog>
 
-              {templates.length > 0 && (
-                <Select onValueChange={(id) => {
-                  const t = templates.find((t) => t.id === id);
-                  if (t) loadTemplate(t);
-                }}>
-                  <SelectTrigger className="w-48">
-                    <SelectValue placeholder="Load template..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {templates.map((t) => (
-                      <SelectItem key={t.id} value={t.id}>
-                        {t.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
+              <Select onValueChange={(id) => {
+                const t = templates.find((t) => t.id === id);
+                if (t) loadTemplate(t);
+              }} disabled={templates.length === 0}>
+                <SelectTrigger className="w-48">
+                  <SelectValue placeholder={templates.length > 0 ? "Load template..." : "No saved templates"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {templates.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </motion.div>
 
