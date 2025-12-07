@@ -593,18 +593,16 @@ const Editor = () => {
                   </DialogHeader>
                   <div className="space-y-4">
                     <div className="border border-border rounded-lg overflow-hidden">
-                      <canvas ref={signatureCanvasRef} className="w-full" />
+                      <canvas ref={signatureCanvasRef} width={400} height={200} className="w-full" />
                     </div>
                     <div className="flex gap-2">
                       <Button variant="outline" size="sm" onClick={clearSignatureCanvas}>
                         Clear
                       </Button>
-                      <label className="cursor-pointer">
-                        <Button variant="outline" size="sm" className="pointer-events-none gap-2">
-                          <Upload className="w-4 h-4" /> Upload
-                        </Button>
-                        <input type="file" accept="image/*" onChange={uploadSignature} className="hidden" />
-                      </label>
+                      <Button variant="outline" size="sm" className="gap-2" onClick={() => document.getElementById('signature-upload-input')?.click()}>
+                        <Upload className="w-4 h-4" /> Upload
+                      </Button>
+                      <input id="signature-upload-input" type="file" accept="image/*" onChange={uploadSignature} className="hidden" />
                     </div>
                   </div>
                   <DialogFooter>
