@@ -1,6 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Award, Sparkles } from "lucide-react";
+import { Award } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -17,27 +17,36 @@ export const Navbar = () => {
     <motion.header
       initial={{ y: -20, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
-      className="fixed top-0 left-0 right-0 z-50 px-4 py-4"
+      className="fixed top-0 left-0 right-0 z-50 px-4 py-3 bg-white/95 backdrop-blur-md border-b border-gray-200"
     >
-      <nav className="max-w-6xl mx-auto glass-strong rounded-2xl px-6 py-3">
+      <nav className="max-w-7xl mx-auto px-6">
         <div className="flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-2 group">
-            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
-              <Award className="w-5 h-5 text-primary" />
+          <Link to="/" className="flex items-center gap-3 group">
+            {/* Google-style multicolor logo */}
+            <div className="flex items-center gap-[2px]">
+              <div className="w-2 h-8 rounded-sm" style={{ backgroundColor: "hsl(217, 89%, 61%)" }} />
+              <div className="w-2 h-8 rounded-sm" style={{ backgroundColor: "hsl(4, 90%, 58%)" }} />
+              <div className="w-2 h-8 rounded-sm" style={{ backgroundColor: "hsl(45, 100%, 51%)" }} />
+              <div className="w-2 h-8 rounded-sm" style={{ backgroundColor: "hsl(142, 76%, 36%)" }} />
             </div>
-            <span className="font-semibold text-lg text-foreground">CertifyPro</span>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-medium text-xl text-gray-700">Google Developer</span>
+              </div>
+              <span className="text-xs text-gray-500 -mt-1">Certificate Generator</span>
+            </div>
           </Link>
 
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-2">
             {navItems.map((item) => (
               <Link
                 key={item.path}
                 to={item.path}
                 className={cn(
-                  "px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200",
+                  "px-5 py-2 rounded-full text-sm font-medium transition-all duration-200",
                   location.pathname === item.path
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted/30"
+                    ? "bg-blue-50 text-blue-600"
+                    : "text-gray-600 hover:bg-gray-100"
                 )}
               >
                 {item.label}
