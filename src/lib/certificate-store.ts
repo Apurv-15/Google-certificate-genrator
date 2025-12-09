@@ -28,7 +28,7 @@ export const generateCertId = (): string => {
   const prefix = "CERT";
   const year = new Date().getFullYear().toString().slice(-2);
   const random = Math.random().toString(36).substring(2, 8).toUpperCase();
-  return `${prefix} -${year} -${random} `;
+  return `${prefix}-${year}-${random}`;
 };
 
 export const saveTemplate = async (template: Omit<CertificateTemplate, "id" | "createdAt">): Promise<CertificateTemplate> => {
